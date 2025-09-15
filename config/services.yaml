@@ -1,0 +1,18 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+
+  Hexis\EmailArchiveBundle\Service\EmailArchiveService:
+    arguments:
+      $archiveRoot: '%hexis_email_archive.archive_root%'
+      $ignoreRules: '%hexis_email_archive.ignore_rules%'
+      $maxPreviewBytes: '%hexis_email_archive.max_preview_bytes%'
+      $maxAttachmentBytes: '%hexis_email_archive.max_attachment_bytes%'
+
+  Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber:
+    arguments:
+      $emailArchiveEnabled: '%hexis_email_archive.enabled%'
+    tags:
+      - { name: kernel.event_subscriber }
+
