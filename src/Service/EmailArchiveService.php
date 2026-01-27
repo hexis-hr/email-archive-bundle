@@ -26,7 +26,7 @@ final class EmailArchiveService
     public function __construct(
         string $archiveRoot,
         array $ignoreRules = ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []],
-        Filesystem $filesystem = null,
+        ?Filesystem $filesystem = null,
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
     ) {
@@ -900,4 +900,3 @@ final class EmailArchiveService
         $this->archiveCore($message, $envelope, null, null);
     }
 }
-
