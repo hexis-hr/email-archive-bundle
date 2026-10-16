@@ -6,6 +6,7 @@ use Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber;
 use Hexis\EmailArchiveBundle\Service\EmailArchiveService;
 use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\Envelope;
@@ -81,6 +82,24 @@ final class MailerSubscriberTest extends TestCase
 
         self::assertCount(1, $this->logger->records);
         self::assertSame('Storage is not configured.', $this->logger->records[0]['context']['error']);
+    }
+
+    public function testLoggerThatFailsDoesNotFailTheSentMessage(): void
+    {
+        // A full disk can take the file logger down together with the archive.
+        $logger = new class extends AbstractLogger {
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                throw new \RuntimeException('No space left on device.');
+            }
+        };
+        $subscriber = new MailerSubscriber($logger, function (): EmailArchiveService {
+            throw new \RuntimeException('Storage is not configured.');
+        }, true);
+
+        $subscriber->onSentMessage($this->event());
+
+        $this->addToAssertionCount(1);
     }
 
     public function testDisabledArchiveNeitherBuildsTheServiceNorArchives(): void

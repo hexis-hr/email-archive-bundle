@@ -47,11 +47,15 @@ class MailerSubscriber implements EventSubscriberInterface
 
             $service->archiveSent($message);
         } catch (\Throwable $exception) {
-            $this->logger->error('The e-mail was sent but could not be archived: {error}', [
-                'error' => $exception->getMessage(),
-                'exception' => $exception,
-                'messageId' => $message->getMessageId(),
-            ]);
+            try {
+                $this->logger->error('The e-mail was sent but could not be archived: {error}', [
+                    'error' => $exception->getMessage(),
+                    'exception' => $exception,
+                    'messageId' => $message->getMessageId(),
+                ]);
+            } catch (\Throwable) {
+                // The logger failed too (a full disk takes both); reporting must not fail the sent e-mail either.
+            }
         }
     }
 }
