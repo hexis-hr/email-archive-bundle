@@ -292,7 +292,7 @@ final class EmailArchiveService
             if ($data['messageId'] === null) {
                 $data['messageId'] = $message->generateMessageId();
             }
-            $data['subject'] = $message->subject();
+            $data['subject'] = $message->getSubject();
 
             // Optional template header for template-matching rules
             $templateHeader = $message->getHeaders()->get('X-Template-Name');
