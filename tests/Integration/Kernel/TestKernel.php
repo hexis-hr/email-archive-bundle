@@ -3,7 +3,7 @@
 namespace Hexis\EmailArchiveBundle\Tests\Integration\Kernel;
 
 use Hexis\EmailArchiveBundle\EmailArchiveBundle;
-use Psr\Log\NullLogger;
+use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -13,10 +13,15 @@ use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 /**
  * Boots the bundle the way a host application does, with Mailer on the null transport.
+ *
+ * ENV_BROKEN_DISK points archive_root below a regular file, so no archive directory can be created.
  */
 final class TestKernel extends Kernel
 {
     use MicroKernelTrait;
+
+    public const ENV_LOCAL = 'test';
+    public const ENV_BROKEN_DISK = 'test_broken_disk';
 
     public function registerBundles(): iterable
     {
@@ -44,6 +49,10 @@ final class TestKernel extends Kernel
 
     public function archiveRoot(): string
     {
+        if ($this->environment === self::ENV_BROKEN_DISK) {
+            return __FILE__ . '/archive';
+        }
+
         return $this->varDir() . '/archive';
     }
 
@@ -58,7 +67,7 @@ final class TestKernel extends Kernel
             'mailer' => ['dsn' => 'null://null', 'message_bus' => false],
         ]);
 
-        $container->services()->set('logger', NullLogger::class);
+        $container->services()->set('logger', CollectingLogger::class)->public();
         $container->services()->alias('test.mailer', MailerInterface::class)->public();
 
         $container->extension('email_archive', [

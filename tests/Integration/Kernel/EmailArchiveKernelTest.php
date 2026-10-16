@@ -2,6 +2,8 @@
 
 namespace Hexis\EmailArchiveBundle\Tests\Integration\Kernel;
 
+use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
+use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\MailerInterface;
@@ -21,7 +23,7 @@ final class EmailArchiveKernelTest extends KernelTestCase
     {
         $root = self::$kernel instanceof TestKernel ? self::$kernel->archiveRoot() : null;
         parent::tearDown();
-        if ($root !== null) {
+        if ($root !== null && is_dir($root)) {
             (new Filesystem())->remove($root);
         }
     }
@@ -45,6 +47,26 @@ final class EmailArchiveKernelTest extends KernelTestCase
         self::assertSame($entry['archiveId'], $meta['archiveId']);
         self::assertSame(['customer@example.com'], $meta['to']);
         self::assertStringContainsString('X-System-Email-Id: 0199f0c4-mail', (string) file_get_contents($dir . '/message.eml'));
+    }
+
+    public function testArchiveFailureIsLoggedAndTheSendSucceeds(): void
+    {
+        self::bootKernel(['environment' => TestKernel::ENV_BROKEN_DISK]);
+
+        $this->mailer()->send($this->email());
+
+        $errors = array_values(array_filter(
+            $this->logger()->records,
+            static fn(array $record): bool => $record['level'] === LogLevel::ERROR,
+        ));
+        self::assertCount(1, $errors);
+        self::assertStringContainsString('could not be archived', $errors[0]['message']);
+        self::assertInstanceOf(\Throwable::class, $errors[0]['context']['exception']);
+    }
+
+    private function logger(): CollectingLogger
+    {
+        return self::getContainer()->get('logger');
     }
 
     private function mailer(): MailerInterface

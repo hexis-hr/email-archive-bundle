@@ -12,6 +12,7 @@ services:
 
   Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber:
     arguments:
+      $emailArchiveService: !service_closure '@Hexis\EmailArchiveBundle\Service\EmailArchiveService'
       $emailArchiveEnabled: '%hexis_email_archive.enabled%'
     tags:
       - { name: kernel.event_subscriber }
