@@ -4,6 +4,10 @@ namespace Hexis\EmailArchiveBundle\Tests\Unit\Service;
 
 use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
 use Hexis\EmailArchiveBundle\Service\EmailArchiveService;
+use Hexis\EmailArchiveBundle\Storage\ArchiveStorage;
+use Hexis\EmailArchiveBundle\Storage\FlysystemArchiveStorage;
+use League\Flysystem\Filesystem as FlysystemFilesystem;
+use League\Flysystem\InMemory\InMemoryFilesystemAdapter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcher;
@@ -211,6 +215,37 @@ final class EmailArchiveServiceTest extends TestCase
         self::assertTrue($seen);
     }
 
+    public function testFlysystemStorageGetsTheSameLayoutBelowItsPrefix(): void
+    {
+        $filesystem = new FlysystemFilesystem(new InMemoryFilesystemAdapter());
+        $email = $this->email()->html('<p>Invoice 42</p>')->attach('hello world', 'report.txt', 'text/plain');
+        $events = [];
+
+        $archiveId = $this->service(
+            dispatcher: $this->dispatcher($events),
+            storage: new FlysystemArchiveStorage($filesystem, 'email'),
+        )->archiveEmail($email, null);
+
+        $path = $events[0]->getPath();
+        self::assertStringEndsWith('/' . $archiveId, $path);
+        $meta = json_decode($filesystem->read('email/' . $path . '/meta.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($archiveId, $meta['archiveId']);
+        self::assertSame($path, $meta['path']);
+        self::assertStringContainsString('Subject: Invoice 42', $filesystem->read('email/' . $path . '/message.eml'));
+        self::assertSame('<p>Invoice 42</p>', $filesystem->read('email/' . $path . '/preview.html'));
+        self::assertSame('hello world', $filesystem->read('email/' . $path . '/attachments/1_report.txt'));
+
+        $index = json_decode(
+            $filesystem->read(sprintf('email/index/%s/%s.ndjson', substr($meta['sentAt'], 0, 10), $archiveId)),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        self::assertSame($archiveId, $index['archiveId']);
+        self::assertSame($path, $index['path']);
+        self::assertDirectoryDoesNotExist($this->root);
+    }
+
     /**
      * @param array{from:string[],to:string[],subject_regex:string[],templates:string[]} $ignoreRules
      */
@@ -219,6 +254,7 @@ final class EmailArchiveServiceTest extends TestCase
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
         ?EventDispatcher $dispatcher = null,
+        ?ArchiveStorage $storage = null,
     ): EmailArchiveService {
         return new EmailArchiveService(
             $this->root,
@@ -226,6 +262,7 @@ final class EmailArchiveServiceTest extends TestCase
             null,
             $maxPreviewBytes,
             $maxAttachmentBytes,
+            $storage,
             $dispatcher,
         );
     }

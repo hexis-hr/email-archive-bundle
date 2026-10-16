@@ -5,6 +5,8 @@ namespace Hexis\EmailArchiveBundle\Tests\Integration\Kernel;
 use Hexis\EmailArchiveBundle\EmailArchiveBundle;
 use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
 use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
+use League\Flysystem\Filesystem;
+use League\Flysystem\InMemory\InMemoryFilesystemAdapter;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -12,10 +14,13 @@ use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
+
 /**
  * Boots the bundle the way a host application does, with Mailer on the null transport.
  *
  * ENV_BROKEN_DISK points archive_root below a regular file, so no archive directory can be created.
+ * ENV_FLYSYSTEM archives into an in-memory Flysystem filesystem below the prefix "mail".
  */
 final class TestKernel extends Kernel
 {
@@ -23,6 +28,7 @@ final class TestKernel extends Kernel
 
     public const ENV_LOCAL = 'test';
     public const ENV_BROKEN_DISK = 'test_broken_disk';
+    public const ENV_FLYSYSTEM = 'test_flysystem';
 
     public function registerBundles(): iterable
     {
@@ -74,8 +80,20 @@ final class TestKernel extends Kernel
             ->public()
             ->tag('kernel.event_listener', ['event' => EmailArchivedEvent::class]);
 
+        if ($this->environment !== self::ENV_FLYSYSTEM) {
+            $container->extension('email_archive', [
+                'archive_root' => $this->archiveRoot(),
+            ]);
+
+            return;
+        }
+
+        $container->services()->set('test.archive_filesystem', Filesystem::class)
+            ->args([inline_service(InMemoryFilesystemAdapter::class)])
+            ->public();
         $container->extension('email_archive', [
-            'archive_root' => $this->archiveRoot(),
+            'archive_root' => 'mail',
+            'storage' => ['service' => 'test.archive_filesystem'],
         ]);
     }
 

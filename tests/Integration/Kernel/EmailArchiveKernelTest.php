@@ -3,6 +3,7 @@
 namespace Hexis\EmailArchiveBundle\Tests\Integration\Kernel;
 
 use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
+use League\Flysystem\FilesystemOperator;
 use Psr\Log\LogLevel;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Filesystem\Filesystem;
@@ -69,6 +70,30 @@ final class EmailArchiveKernelTest extends KernelTestCase
         self::assertStringContainsString('could not be archived', $errors[0]['message']);
         self::assertInstanceOf(\Throwable::class, $errors[0]['context']['exception']);
         self::assertSame([], self::getContainer()->get(ArchivedEvents::class)->events);
+    }
+
+    public function testSentEmailIsArchivedIntoTheFlysystemStorage(): void
+    {
+        $kernel = self::bootKernel(['environment' => TestKernel::ENV_FLYSYSTEM]);
+
+        $this->mailer()->send($this->email());
+
+        $events = self::getContainer()->get(ArchivedEvents::class)->events;
+        self::assertCount(1, $events);
+        $event = $events[0];
+
+        /** @var FilesystemOperator $filesystem */
+        $filesystem = self::getContainer()->get('test.archive_filesystem');
+        $meta = json_decode($filesystem->read('mail/' . $event->getPath() . '/meta.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($event->getArchiveId(), $meta['archiveId']);
+        self::assertStringContainsString(
+            'X-System-Email-Id: 0199f0c4-mail',
+            $filesystem->read('mail/' . $event->getPath() . '/message.eml'),
+        );
+        self::assertTrue($filesystem->fileExists(
+            sprintf('mail/index/%s/%s.ndjson', substr($meta['sentAt'], 0, 10), $event->getArchiveId()),
+        ));
+        self::assertDirectoryDoesNotExist($kernel->getProjectDir() . '/var/email');
     }
 
     private function logger(): CollectingLogger
