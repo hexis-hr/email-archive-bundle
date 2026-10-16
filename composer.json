@@ -20,14 +20,29 @@
       "Hexis\\EmailArchiveBundle\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "Hexis\\EmailArchiveBundle\\Tests\\": "tests/"
+    }
+  },
   "require": {
     "php": ">=8.1",
-    "symfony/filesystem": "^6.2|^7.0",
-    "symfony/mailer": "^6.2|^7.0",
-    "symfony/event-dispatcher": "^6.2|^7.0",
-    "symfony/dependency-injection": "^6.2|^7.0",
-    "symfony/config": "^6.2|^7.0",
-    "symfony/http-kernel": "^6.2|^7.0",
-    "symfony/mime": "^6.2|^7.0"
+    "symfony/filesystem": "^6.2|^7.0|^8.0",
+    "symfony/mailer": "^6.2|^7.0|^8.0",
+    "symfony/event-dispatcher": "^6.2|^7.0|^8.0",
+    "symfony/dependency-injection": "^6.2|^7.0|^8.0",
+    "symfony/config": "^6.2|^7.0|^8.0",
+    "symfony/http-kernel": "^6.2|^7.0|^8.0",
+    "symfony/mime": "^6.2|^7.0|^8.0",
+    "symfony/yaml": "^6.2|^7.0|^8.0"
+  },
+  "require-dev": {
+    "league/flysystem": "^3.0",
+    "league/flysystem-memory": "^3.0",
+    "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
+    "symfony/framework-bundle": "^6.2|^7.0|^8.0"
+  },
+  "suggest": {
+    "league/flysystem": "Required for the storage.service option: archive into a Flysystem filesystem (S3, ...) instead of the local disk."
   }
 }

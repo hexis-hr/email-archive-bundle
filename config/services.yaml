@@ -9,9 +9,12 @@ services:
       $ignoreRules: '%hexis_email_archive.ignore_rules%'
       $maxPreviewBytes: '%hexis_email_archive.max_preview_bytes%'
       $maxAttachmentBytes: '%hexis_email_archive.max_attachment_bytes%'
+      $storage: '@hexis_email_archive.storage'
+      $eventDispatcher: '@?event_dispatcher'
 
   Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber:
     arguments:
+      $emailArchiveService: !service_closure '@Hexis\EmailArchiveBundle\Service\EmailArchiveService'
       $emailArchiveEnabled: '%hexis_email_archive.enabled%'
     tags:
       - { name: kernel.event_subscriber }

@@ -2,6 +2,10 @@
 
 namespace Hexis\EmailArchiveBundle\Service;
 
+use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
+use Hexis\EmailArchiveBundle\Storage\ArchiveStorage;
+use Hexis\EmailArchiveBundle\Storage\LocalArchiveStorage;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
@@ -17,11 +21,12 @@ final class EmailArchiveService
     /** @var array{from:string[],to:string[],subject_regex:string[],templates:string[]} */
     private array $ignoreRules;
 
-    private string $archiveRoot;
-    private Filesystem $filesystem;
+    private ArchiveStorage $storage;
+    private ?EventDispatcherInterface $eventDispatcher;
 
     /**
      * @param array{from:string[],to:string[],subject_regex:string[],templates:string[]} $ignoreRules
+     * @param ArchiveStorage|null $storage null writes below $archiveRoot on the local disk (with $filesystem)
      */
     public function __construct(
         string $archiveRoot,
@@ -29,14 +34,16 @@ final class EmailArchiveService
         ?Filesystem $filesystem = null,
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
+        ?ArchiveStorage $storage = null,
+        ?EventDispatcherInterface $eventDispatcher = null,
     ) {
-        $this->archiveRoot = rtrim($archiveRoot, '/');
         $this->ignoreRules = self::normalizeIgnoreRules($ignoreRules);
-        $this->filesystem = $filesystem ?: new Filesystem();
+        $this->storage = $storage ?? new LocalArchiveStorage($archiveRoot, $filesystem);
         $this->maxPreviewBytes = $maxPreviewBytes;
         $this->maxAttachmentBytes = $maxAttachmentBytes;
+        $this->eventDispatcher = $eventDispatcher;
 
-        $this->ensureArchiveStructure();
+        $this->storage->prepare();
     }
 
     private static function normalizeIgnoreRules(array $rules): array
@@ -61,25 +68,16 @@ final class EmailArchiveService
         return $norm;
     }
 
-    private function ensureArchiveStructure(): void
-    {
-        $indexDir = $this->archiveRoot . '/index';
-        $this->filesystem->mkdir($indexDir);
-
-        $gitignorePath = $this->archiveRoot . '/.gitignore';
-        if (!$this->filesystem->exists($gitignorePath)) {
-            $gitignoreContent = "# Email Archive - Do not commit\n*\n!.gitignore\n";
-            $this->filesystem->dumpFile($gitignorePath, $gitignoreContent);
-        }
-    }
-
-    public function archiveSent(SentMessage $sent, ?string $transport = null): void
+    /**
+     * @return string|null the archive id, or null when an ignore rule or the X-Archive-Skip header skipped the message
+     */
+    public function archiveSent(SentMessage $sent, ?string $transport = null): ?string
     {
         $rawMessage = $sent->getMessage();
         $envelope = $sent->getEnvelope();
         $messageId = $sent->getMessageId();
 
-        $this->archiveCore($rawMessage, $envelope, $transport, $messageId);
+        return $this->archiveCore($rawMessage, $envelope, $transport, $messageId);
     }
 
     /**
@@ -90,7 +88,7 @@ final class EmailArchiveService
         ?Envelope $envelope,
         ?string $transport,
         ?string $actualMessageId
-    ): void {
+    ): ?string {
         $sentAt = new \DateTimeImmutable();
         $archiveId = $this->generateArchiveId($sentAt);
         $archivePath = $this->buildArchivePath($sentAt, $archiveId);
@@ -100,11 +98,11 @@ final class EmailArchiveService
 
         // Selective ignore (header + env rules)
         if ($this->shouldSkipArchive($message, $emailData)) {
-            return;
+            return null;
         }
 
         // Create archive directory
-        $this->filesystem->mkdir($archivePath);
+        $this->storage->createDirectory($archivePath);
 
         // Store message.eml
         $this->storeRawMessage($archivePath, $message);
@@ -123,6 +121,10 @@ final class EmailArchiveService
 
         // Update daily index
         $this->updateDailyIndex($sentAt, $emailData, $archiveId);
+
+        $this->eventDispatcher?->dispatch(new EmailArchivedEvent($archiveId, $archivePath, $message, $transport));
+
+        return $archiveId;
     }
 
     private function generateArchiveId(\DateTimeInterface $sentAt): string
@@ -133,11 +135,13 @@ final class EmailArchiveService
         return $timeStr . '_' . $randomStr;
     }
 
+    /**
+     * Relative to the archive root.
+     */
     private function buildArchivePath(\DateTimeInterface $sentAt, string $archiveId): string
     {
         return sprintf(
-            '%s/%s/%s/%s/%s',
-            $this->archiveRoot,
+            '%s/%s/%s/%s',
             $sentAt->format('Y'),
             $sentAt->format('m'),
             $sentAt->format('d'),
@@ -292,7 +296,7 @@ final class EmailArchiveService
             if ($data['messageId'] === null) {
                 $data['messageId'] = $message->generateMessageId();
             }
-            $data['subject'] = $message->subject();
+            $data['subject'] = $message->getSubject();
 
             // Optional template header for template-matching rules
             $templateHeader = $message->getHeaders()->get('X-Template-Name');
@@ -598,7 +602,7 @@ final class EmailArchiveService
     private function storeRawMessage(string $archivePath, RawMessage $message): void
     {
         $emlPath = $archivePath . '/message.eml';
-        $this->filesystem->dumpFile($emlPath, $message->toString());
+        $this->storage->write($emlPath, $message->toString());
     }
 
     private function storePreview(string $archivePath, RawMessage $message, array $emailData): void
@@ -607,7 +611,7 @@ final class EmailArchiveService
             if (strlen($payload) > $this->maxPreviewBytes) {
                 $payload = substr($payload, 0, $this->maxPreviewBytes) . "\n<!-- truncated -->";
             }
-            $this->filesystem->dumpFile($path, $payload);
+            $this->storage->write($path, $payload);
         };
 
         if (!empty($emailData['htmlBody'])) {
@@ -626,7 +630,7 @@ final class EmailArchiveService
     private function storeAttachments(string $archivePath, RawMessage|Email $message): array
     {
         $dir = $archivePath . '/attachments';
-        $this->filesystem->mkdir($dir);
+        $this->storage->createDirectory($dir);
 
         $items = [];
         $totalBytes = 0;
@@ -650,9 +654,9 @@ final class EmailArchiveService
                     $binary = substr($binary, 0, $this->maxAttachmentBytes);
                 }
 
-                $this->filesystem->dumpFile($path, $binary);
-                $size = filesize($path) ?: strlen($binary);
-                $sha = hash_file('sha256', $path) ?: hash('sha256', $binary);
+                $this->storage->write($path, $binary);
+                $size = strlen($binary);
+                $sha = hash('sha256', $binary);
 
                 $items[] = [
                     'filename' => $filename,
@@ -742,9 +746,9 @@ final class EmailArchiveService
                 $binary = substr($binary, 0, $this->maxAttachmentBytes);
             }
 
-            $this->filesystem->dumpFile($path, $binary);
-            $size = filesize($path) ?: strlen($binary);
-            $sha = hash_file('sha256', $path) ?: hash('sha256', $binary);
+            $this->storage->write($path, $binary);
+            $size = strlen($binary);
+            $sha = hash('sha256', $binary);
 
             // Try grab CID for inline parts
             $cid = $this->getHeader($pHeaders, 'Content-Id');
@@ -839,28 +843,21 @@ final class EmailArchiveService
             'hash' => $emailData['hash'],
             'hasPreview' => $emailData['hasPreview'],
             'template' => $emailData['template'],
-            'path' => $this->getRelativePath($archivePath),
+            'path' => $archivePath,
 
             'attachmentsCount' => (int)($emailData['attachments'] ?? 0),
             'attachmentsBytes' => (int)($emailData['attachmentsBytes'] ?? 0),
             'attachmentsMeta' => array_values($emailData['attachmentsMeta'] ?? []),
         ];
 
-        $this->filesystem->dumpFile(
+        $this->storage->write(
             $archivePath . '/meta.json',
             json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
         );
     }
 
-    private function getRelativePath(string $fullPath): string
-    {
-        return str_replace($this->archiveRoot . '/', '', $fullPath);
-    }
-
     private function updateDailyIndex(\DateTimeInterface $sentAt, array $emailData, string $archiveId): void
     {
-        $indexFile = sprintf('%s/index/%s.ndjson', $this->archiveRoot, $sentAt->format('Y-m-d'));
-
         $indexEntry = [
             'archiveId' => $archiveId,
             'messageId' => $emailData['messageId'],
@@ -884,19 +881,21 @@ final class EmailArchiveService
             'attachmentsBytes' => (int)($emailData['attachmentsBytes'] ?? 0),
         ];
 
-        file_put_contents(
-            $indexFile,
-            json_encode($indexEntry, JSON_UNESCAPED_SLASHES) . "\n",
-            FILE_APPEND | LOCK_EX
+        $this->storage->addIndexEntry(
+            $sentAt,
+            $archiveId,
+            json_encode($indexEntry, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
         );
     }
 
     /**
      * Backwards-compatible entrypoint if you only have RawMessage/Envelope.
      * (Will synthesize Message-Id and set transport to "default" unless provided.)
+     *
+     * @return string|null the archive id, or null when an ignore rule or the X-Archive-Skip header skipped the message
      */
-    public function archiveEmail(RawMessage $message, ?Envelope $envelope): void
+    public function archiveEmail(RawMessage $message, ?Envelope $envelope): ?string
     {
-        $this->archiveCore($message, $envelope, null, null);
+        return $this->archiveCore($message, $envelope, null, null);
     }
 }
