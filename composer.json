@@ -20,6 +20,11 @@
       "Hexis\\EmailArchiveBundle\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "Hexis\\EmailArchiveBundle\\Tests\\": "tests/"
+    }
+  },
   "require": {
     "php": ">=8.1",
     "symfony/filesystem": "^6.2|^7.0|^8.0",
@@ -30,5 +35,9 @@
     "symfony/http-kernel": "^6.2|^7.0|^8.0",
     "symfony/mime": "^6.2|^7.0|^8.0",
     "symfony/yaml": "^6.2|^7.0|^8.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
+    "symfony/framework-bundle": "^6.2|^7.0|^8.0"
   }
 }
