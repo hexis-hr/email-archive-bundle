@@ -3,6 +3,7 @@
 namespace Hexis\EmailArchiveBundle\Tests\Integration\Kernel;
 
 use Hexis\EmailArchiveBundle\EmailArchiveBundle;
+use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
 use Hexis\EmailArchiveBundle\Tests\Support\CollectingLogger;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -69,6 +70,9 @@ final class TestKernel extends Kernel
 
         $container->services()->set('logger', CollectingLogger::class)->public();
         $container->services()->alias('test.mailer', MailerInterface::class)->public();
+        $container->services()->set(ArchivedEvents::class)
+            ->public()
+            ->tag('kernel.event_listener', ['event' => EmailArchivedEvent::class]);
 
         $container->extension('email_archive', [
             'archive_root' => $this->archiveRoot(),

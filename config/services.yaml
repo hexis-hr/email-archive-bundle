@@ -9,6 +9,7 @@ services:
       $ignoreRules: '%hexis_email_archive.ignore_rules%'
       $maxPreviewBytes: '%hexis_email_archive.max_preview_bytes%'
       $maxAttachmentBytes: '%hexis_email_archive.max_attachment_bytes%'
+      $eventDispatcher: '@?event_dispatcher'
 
   Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber:
     arguments:

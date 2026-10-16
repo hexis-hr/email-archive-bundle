@@ -2,6 +2,8 @@
 
 namespace Hexis\EmailArchiveBundle\Service;
 
+use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
@@ -19,6 +21,7 @@ final class EmailArchiveService
 
     private string $archiveRoot;
     private Filesystem $filesystem;
+    private ?EventDispatcherInterface $eventDispatcher;
 
     /**
      * @param array{from:string[],to:string[],subject_regex:string[],templates:string[]} $ignoreRules
@@ -29,12 +32,14 @@ final class EmailArchiveService
         ?Filesystem $filesystem = null,
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
+        ?EventDispatcherInterface $eventDispatcher = null,
     ) {
         $this->archiveRoot = rtrim($archiveRoot, '/');
         $this->ignoreRules = self::normalizeIgnoreRules($ignoreRules);
         $this->filesystem = $filesystem ?: new Filesystem();
         $this->maxPreviewBytes = $maxPreviewBytes;
         $this->maxAttachmentBytes = $maxAttachmentBytes;
+        $this->eventDispatcher = $eventDispatcher;
 
         $this->ensureArchiveStructure();
     }
@@ -73,13 +78,16 @@ final class EmailArchiveService
         }
     }
 
-    public function archiveSent(SentMessage $sent, ?string $transport = null): void
+    /**
+     * @return string|null the archive id, or null when an ignore rule or the X-Archive-Skip header skipped the message
+     */
+    public function archiveSent(SentMessage $sent, ?string $transport = null): ?string
     {
         $rawMessage = $sent->getMessage();
         $envelope = $sent->getEnvelope();
         $messageId = $sent->getMessageId();
 
-        $this->archiveCore($rawMessage, $envelope, $transport, $messageId);
+        return $this->archiveCore($rawMessage, $envelope, $transport, $messageId);
     }
 
     /**
@@ -90,7 +98,7 @@ final class EmailArchiveService
         ?Envelope $envelope,
         ?string $transport,
         ?string $actualMessageId
-    ): void {
+    ): ?string {
         $sentAt = new \DateTimeImmutable();
         $archiveId = $this->generateArchiveId($sentAt);
         $archivePath = $this->buildArchivePath($sentAt, $archiveId);
@@ -100,7 +108,7 @@ final class EmailArchiveService
 
         // Selective ignore (header + env rules)
         if ($this->shouldSkipArchive($message, $emailData)) {
-            return;
+            return null;
         }
 
         // Create archive directory
@@ -123,6 +131,12 @@ final class EmailArchiveService
 
         // Update daily index
         $this->updateDailyIndex($sentAt, $emailData, $archiveId);
+
+        $this->eventDispatcher?->dispatch(
+            new EmailArchivedEvent($archiveId, $this->getRelativePath($archivePath), $message, $transport)
+        );
+
+        return $archiveId;
     }
 
     private function generateArchiveId(\DateTimeInterface $sentAt): string
@@ -894,9 +908,11 @@ final class EmailArchiveService
     /**
      * Backwards-compatible entrypoint if you only have RawMessage/Envelope.
      * (Will synthesize Message-Id and set transport to "default" unless provided.)
+     *
+     * @return string|null the archive id, or null when an ignore rule or the X-Archive-Skip header skipped the message
      */
-    public function archiveEmail(RawMessage $message, ?Envelope $envelope): void
+    public function archiveEmail(RawMessage $message, ?Envelope $envelope): ?string
     {
-        $this->archiveCore($message, $envelope, null, null);
+        return $this->archiveCore($message, $envelope, null, null);
     }
 }

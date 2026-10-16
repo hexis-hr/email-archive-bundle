@@ -2,9 +2,11 @@
 
 namespace Hexis\EmailArchiveBundle\Tests\Unit\Service;
 
+use Hexis\EmailArchiveBundle\Event\EmailArchivedEvent;
 use Hexis\EmailArchiveBundle\Service\EmailArchiveService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
@@ -32,11 +34,12 @@ final class EmailArchiveServiceTest extends TestCase
             ->text('Plain body')
             ->html('<p>Invoice 42</p>');
 
-        $this->service()->archiveEmail($email, null);
+        $archiveId = $this->service()->archiveEmail($email, null);
 
         $archive = $this->onlyArchive();
-        self::assertMatchesRegularExpression('#^\d{4}/\d{2}/\d{2}/\d{6}_[0-9a-f]{16}$#', $archive['path']);
-        self::assertSame(basename($archive['path']), $archive['archiveId']);
+        self::assertMatchesRegularExpression('/^\d{6}_[0-9a-f]{16}$/', (string) $archiveId);
+        self::assertSame($archiveId, $archive['archiveId']);
+        self::assertMatchesRegularExpression('#^\d{4}/\d{2}/\d{2}/' . $archiveId . '$#', $archive['path']);
         self::assertSame('Invoice 42', $archive['subject']);
         self::assertSame('billing@example.com', $archive['from']);
         self::assertSame(['customer@example.com'], $archive['to']);
@@ -110,10 +113,11 @@ final class EmailArchiveServiceTest extends TestCase
             ->attach('%PDF-1.4 fake', 'invoice.pdf', 'application/pdf');
         $sent = new SentMessage($email, Envelope::create($email));
 
-        $this->service()->archiveSent($sent, 'smtp');
+        $archiveId = $this->service()->archiveSent($sent, 'smtp');
 
         $archive = $this->onlyArchive();
         $dir = $this->root . '/' . $archive['path'];
+        self::assertSame($archiveId, $archive['archiveId']);
         self::assertSame($sent->getMessageId(), $archive['messageId']);
         self::assertSame('smtp', $archive['transport']);
         self::assertSame('Invoice 42', $archive['subject']);
@@ -145,10 +149,15 @@ final class EmailArchiveServiceTest extends TestCase
         $email = $this->email()->subject('[Debug] Invoice 42')->text('Body');
         $email->getHeaders()->addTextHeader('X-Template-Name', 'transactional/invoice');
 
-        $this->service(ignoreRules: $rules + ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []])
-            ->archiveEmail($email, null);
+        $events = [];
+        $archiveId = $this->service(
+            ignoreRules: $rules + ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []],
+            dispatcher: $this->dispatcher($events),
+        )->archiveEmail($email, null);
 
+        self::assertNull($archiveId);
         self::assertSame([], $this->archives());
+        self::assertSame([], $events);
     }
 
     public function testSkipHeaderSkipsTheArchive(): void
@@ -156,8 +165,7 @@ final class EmailArchiveServiceTest extends TestCase
         $email = $this->email()->text('Body');
         $email->getHeaders()->addTextHeader('X-Archive-Skip', 'true');
 
-        $this->service()->archiveEmail($email, null);
-
+        self::assertNull($this->service()->archiveEmail($email, null));
         self::assertSame([], $this->archives());
     }
 
@@ -166,9 +174,41 @@ final class EmailArchiveServiceTest extends TestCase
         $email = $this->email()->text('Body');
         $email->getHeaders()->addTextHeader('X-Archive-Skip', 'yes');
 
-        $this->service()->archiveSent(new SentMessage($email, Envelope::create($email)));
-
+        self::assertNull($this->service()->archiveSent(new SentMessage($email, Envelope::create($email))));
         self::assertSame([], $this->archives());
+    }
+
+    public function testArchivedEventCarriesTheIdPathMessageAndTransport(): void
+    {
+        $email = $this->email()->html('<p>Invoice 42</p>');
+        $email->getHeaders()->addTextHeader('X-System-Email-Id', '0199f0c4-mail');
+        $sent = new SentMessage($email, Envelope::create($email));
+        $events = [];
+
+        $archiveId = $this->service(dispatcher: $this->dispatcher($events))->archiveSent($sent, 'smtp');
+
+        self::assertCount(1, $events);
+        $event = $events[0];
+        self::assertSame($archiveId, $event->getArchiveId());
+        self::assertSame($this->onlyArchive()['path'], $event->getPath());
+        self::assertSame($sent->getMessage(), $event->getMessage());
+        self::assertSame('smtp', $event->getTransport());
+        self::assertSame('0199f0c4-mail', $event->getHeader('X-System-Email-Id'));
+    }
+
+    public function testArchivedEventIsDispatchedAfterEveryFileIsWritten(): void
+    {
+        $seen = null;
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addListener(EmailArchivedEvent::class, function (EmailArchivedEvent $event) use (&$seen): void {
+            $dir = $this->root . '/' . $event->getPath();
+            $index = sprintf('%s/index/%s.ndjson', $this->root, str_replace('/', '-', substr($event->getPath(), 0, 10)));
+            $seen = is_file($dir . '/message.eml') && is_file($dir . '/meta.json') && is_file($index);
+        });
+
+        $this->service(dispatcher: $dispatcher)->archiveEmail($this->email()->text('Body'), null);
+
+        self::assertTrue($seen);
     }
 
     /**
@@ -178,8 +218,29 @@ final class EmailArchiveServiceTest extends TestCase
         array $ignoreRules = ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []],
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
+        ?EventDispatcher $dispatcher = null,
     ): EmailArchiveService {
-        return new EmailArchiveService($this->root, $ignoreRules, null, $maxPreviewBytes, $maxAttachmentBytes);
+        return new EmailArchiveService(
+            $this->root,
+            $ignoreRules,
+            null,
+            $maxPreviewBytes,
+            $maxAttachmentBytes,
+            $dispatcher,
+        );
+    }
+
+    /**
+     * @param list<EmailArchivedEvent> $events receives every dispatched event
+     */
+    private function dispatcher(array &$events): EventDispatcher
+    {
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addListener(EmailArchivedEvent::class, static function (EmailArchivedEvent $event) use (&$events): void {
+            $events[] = $event;
+        });
+
+        return $dispatcher;
     }
 
     private function email(): Email

@@ -47,6 +47,12 @@ final class EmailArchiveKernelTest extends KernelTestCase
         self::assertSame($entry['archiveId'], $meta['archiveId']);
         self::assertSame(['customer@example.com'], $meta['to']);
         self::assertStringContainsString('X-System-Email-Id: 0199f0c4-mail', (string) file_get_contents($dir . '/message.eml'));
+
+        $events = self::getContainer()->get(ArchivedEvents::class)->events;
+        self::assertCount(1, $events);
+        self::assertSame($entry['archiveId'], $events[0]->getArchiveId());
+        self::assertSame($entry['path'], $events[0]->getPath());
+        self::assertSame('0199f0c4-mail', $events[0]->getHeader('X-System-Email-Id'));
     }
 
     public function testArchiveFailureIsLoggedAndTheSendSucceeds(): void
@@ -62,6 +68,7 @@ final class EmailArchiveKernelTest extends KernelTestCase
         self::assertCount(1, $errors);
         self::assertStringContainsString('could not be archived', $errors[0]['message']);
         self::assertInstanceOf(\Throwable::class, $errors[0]['context']['exception']);
+        self::assertSame([], self::getContainer()->get(ArchivedEvents::class)->events);
     }
 
     private function logger(): CollectingLogger
