@@ -74,4 +74,25 @@ final class LocalArchiveStorageTest extends TestCase
         self::assertSame(['one', 'two'], $storage->readAll('delivery/a'));
         self::assertSame([], $storage->readAll('delivery/none'));
     }
+
+    public function testReadReadsOneFileOrNothing(): void
+    {
+        $storage = new LocalArchiveStorage($this->root);
+        $storage->write('2026/10/16/a/meta.json', '{}');
+
+        self::assertSame('{}', $storage->read('2026/10/16/a/meta.json'));
+        self::assertNull($storage->read('2026/10/16/a/preview.html'));
+    }
+
+    public function testReadIndexReadsTheLinesOfOneDay(): void
+    {
+        $storage = new LocalArchiveStorage($this->root);
+        $day = new \DateTimeImmutable('2026-10-16 14:30:05');
+        $storage->addIndexEntry($day, '143005_0000000000000001', '{"n":1}');
+        $storage->addIndexEntry($day, '143005_0000000000000002', '{"n":2}');
+        $storage->addIndexEntry($day->modify('+1 day'), '143005_0000000000000003', '{"n":3}');
+
+        self::assertSame(['{"n":1}', '{"n":2}'], $storage->readIndex($day));
+        self::assertSame([], $storage->readIndex($day->modify('-1 day')));
+    }
 }

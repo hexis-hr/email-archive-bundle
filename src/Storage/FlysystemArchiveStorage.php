@@ -52,6 +52,18 @@ final class FlysystemArchiveStorage implements ArchiveStorage
         return array_map(fn(string $path): string => $this->filesystem->read($path), $paths);
     }
 
+    public function read(string $path): ?string
+    {
+        $location = $this->location($path);
+
+        return $this->filesystem->fileExists($location) ? $this->filesystem->read($location) : null;
+    }
+
+    public function readIndex(\DateTimeInterface $day): array
+    {
+        return array_map(rtrim(...), $this->readAll('index/' . $day->format('Y-m-d')));
+    }
+
     private function location(string $path): string
     {
         return $this->prefix === '' ? $path : $this->prefix . '/' . $path;

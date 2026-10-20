@@ -106,6 +106,9 @@ at the same time:
   `index/YYYY-MM-DD/<archiveId>.ndjson`. A new key per archive cannot race; concatenating a day's files gives the same
   NDJSON as the local index.
 
+To read the archive back (an admin screen), `ArchiveStorage::readIndex($day)` returns a day's index lines on either
+storage, and `read($path)` one file of an archive (`YYYY/MM/DD/<archiveId>/meta.json`, `preview.html`), or null.
+
 ## What gets archived?
 
 When an email is sent, the bundle listens to `SentMessageEvent`, captures the sent message, and writes the following

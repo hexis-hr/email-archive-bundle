@@ -27,4 +27,16 @@ interface ArchiveStorage
      * @return list<string>
      */
     public function readAll(string $directory): array;
+
+    /**
+     * A file's contents, or null when there is none.
+     */
+    public function read(string $path): ?string;
+
+    /**
+     * The index lines of one day, one JSON object per archive; empty when nothing was archived that day.
+     *
+     * @return list<string>
+     */
+    public function readIndex(\DateTimeInterface $day): array;
 }

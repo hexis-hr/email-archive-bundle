@@ -58,4 +58,18 @@ final class LocalArchiveStorage implements ArchiveStorage
 
         return array_values(array_map(static fn(string $file): string => (string) file_get_contents($file), $files));
     }
+
+    public function read(string $path): ?string
+    {
+        $file = $this->root . '/' . $path;
+
+        return is_file($file) ? (string) file_get_contents($file) : null;
+    }
+
+    public function readIndex(\DateTimeInterface $day): array
+    {
+        $file = sprintf('%s/index/%s.ndjson', $this->root, $day->format('Y-m-d'));
+
+        return is_file($file) ? (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []) : [];
+    }
 }
