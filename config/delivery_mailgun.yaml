@@ -1,0 +1,10 @@
+# Loaded only when email_archive.deliverability.mailgun.enabled (or provider=mailgun).
+# Requires symfony/http-client.
+services:
+  Hexis\EmailArchiveBundle\Deliverability\MailgunTracker:
+    autowire: true
+    arguments:
+      $apiKey: '%hexis_email_archive.deliverability.mailgun.api_key%'
+      $domain: '%hexis_email_archive.deliverability.mailgun.domain%'
+      $region: '%hexis_email_archive.deliverability.mailgun.region%'
+      $logger: '@?logger'

@@ -1,0 +1,11 @@
+# Loaded only when email_archive.deliverability.ses.webhook.enabled.
+# Wire the route to this controller yourself (see README).
+services:
+  Hexis\EmailArchiveBundle\Controller\Webhook\SesWebhookController:
+    autowire: true
+    arguments:
+      $logger: '@?logger'
+      $secret: '%hexis_email_archive.deliverability.ses.webhook.secret%'
+    public: true
+    tags:
+      - { name: controller.service_arguments }

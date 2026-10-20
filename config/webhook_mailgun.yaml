@@ -1,0 +1,11 @@
+# Loaded only when email_archive.deliverability.mailgun.webhook.enabled.
+# Wire the route to this controller yourself (see README).
+services:
+  Hexis\EmailArchiveBundle\Controller\Webhook\MailgunWebhookController:
+    autowire: true
+    arguments:
+      $signingKey: '%hexis_email_archive.deliverability.mailgun.webhook.signing_key%'
+      $logger: '@?logger'
+    public: true
+    tags:
+      - { name: controller.service_arguments }

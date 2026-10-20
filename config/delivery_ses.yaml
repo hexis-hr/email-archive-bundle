@@ -1,0 +1,6 @@
+# Loaded only when email_archive.deliverability.ses.enabled (or provider=ses).
+services:
+  Hexis\EmailArchiveBundle\Deliverability\SesTracker:
+    arguments:
+      $region: '%hexis_email_archive.deliverability.ses.region%'
+      $logger: '@?logger'

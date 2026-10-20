@@ -1,0 +1,32 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+
+  Hexis\EmailArchiveBundle\Service\EmailArchiveService:
+    arguments:
+      $archiveRoot: '%hexis_email_archive.archive_root%'
+      $ignoreRules: '%hexis_email_archive.ignore_rules%'
+      $maxPreviewBytes: '%hexis_email_archive.max_preview_bytes%'
+      $maxAttachmentBytes: '%hexis_email_archive.max_attachment_bytes%'
+      $storage: '@hexis_email_archive.storage'
+      $eventDispatcher: '@?event_dispatcher'
+
+  Hexis\EmailArchiveBundle\EventSubscriber\MailerSubscriber:
+    arguments:
+      $emailArchiveService: !service_closure '@Hexis\EmailArchiveBundle\Service\EmailArchiveService'
+      $emailArchiveEnabled: '%hexis_email_archive.enabled%'
+      $deliverabilityProvider: '%hexis_email_archive.deliverability.provider%'
+    tags:
+      - { name: kernel.event_subscriber }
+
+  # Delivery events beside the archive, in its storage, keyed by Message-ID
+  Hexis\EmailArchiveBundle\Delivery\StorageDeliveryEventStore:
+    arguments:
+      $storage: '@hexis_email_archive.storage'
+  Hexis\EmailArchiveBundle\Delivery\DeliveryEventStoreInterface: '@Hexis\EmailArchiveBundle\Delivery\StorageDeliveryEventStore'
+
+  # Default deliverability tracker (the extension points the interface elsewhere when a provider is chosen)
+  Hexis\EmailArchiveBundle\Deliverability\NullTracker: ~
+  Hexis\EmailArchiveBundle\Deliverability\DeliverabilityTrackerInterface: '@Hexis\EmailArchiveBundle\Deliverability\NullTracker'
+
