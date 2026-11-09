@@ -21,11 +21,12 @@ final class EmailArchiveService
     private Filesystem $filesystem;
 
     /**
-     * @param array{from:string[],to:string[],subject_regex:string[],templates:string[]} $ignoreRules
+     * @param array{from?:string[],to?:string[],subject_regex?:string[],templates?:string[]}|string $ignoreRules
+     *        Array, or a JSON string (e.g. from an env var without the json: processor).
      */
     public function __construct(
         string $archiveRoot,
-        array $ignoreRules = ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []],
+        array|string $ignoreRules = ['from' => [], 'to' => [], 'subject_regex' => [], 'templates' => []],
         ?Filesystem $filesystem = null,
         int $maxPreviewBytes = 2_000_000,
         int $maxAttachmentBytes = 50_000_000,
@@ -39,8 +40,16 @@ final class EmailArchiveService
         $this->ensureArchiveStructure();
     }
 
-    private static function normalizeIgnoreRules(array $rules): array
+    private static function normalizeIgnoreRules(array|string $rules): array
     {
+        if (is_string($rules)) {
+            $decoded = trim($rules) === '' ? [] : json_decode($rules, true);
+            if (!is_array($decoded)) {
+                throw new \InvalidArgumentException('ignore_rules string must be valid JSON object.');
+            }
+            $rules = $decoded;
+        }
+
         $norm = [
             'from' => [],
             'to' => [],

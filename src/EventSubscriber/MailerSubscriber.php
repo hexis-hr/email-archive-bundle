@@ -30,9 +30,12 @@ class MailerSubscriber implements EventSubscriberInterface
             return;
         }
 
-        $message = $event->getMessage();
-
-        $this->emailArchiveService->archiveSent($message);
+        try {
+            $this->emailArchiveService->archiveSent($event->getMessage());
+        } catch (\Throwable $e) {
+            // Archiving must never prevent or fail mail delivery.
+            $this->logger->error('Email archive failed: ' . $e->getMessage(), ['exception' => $e]);
+        }
     }
 }
 

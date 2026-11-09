@@ -54,6 +54,12 @@ or plain substrings. When supplied through an environment variable, encode the s
 EMAIL_ARCHIVE_IGNORE_RULES="{\"from\":[\"no-reply@example.com\"],\"templates\":[\"transactional/invoice\"]}"
 ```
 
+Use the `json:` env processor (`'%env(json:EMAIL_ARCHIVE_IGNORE_RULES)%'`) as shown above; a plain `'%env(EMAIL_ARCHIVE_IGNORE_RULES)%'`
+holding the same JSON string also works. Unknown keys in a literal array are rejected at container build time.
+When `ignore_rules` is split across several config files, the last definition replaces earlier ones (no deep merge).
+
+`enabled`, `max_preview_bytes` and `max_attachment_bytes` accept env values too, but use the `bool:` / `int:` processors.
+
 ## What gets archived?
 
 When an email is sent, the bundle listens to `SentMessageEvent`, captures the original message, and writes the following
@@ -69,6 +75,10 @@ payloads beneath `${archive_root}/YYYY/MM/DD/<archiveId>/`:
 The constructor also ensures the root contains an `.gitignore` to prevent accidental VCS commits and creates an `index`
 directory populated with daily NDJSON files (`index/YYYY-MM-DD.ndjson`) that summarize each archived message for quick
 lookup.
+
+> **Async mailer:** archiving runs on `SentMessageEvent`, i.e. when the message is actually sent. If `SendEmailMessage`
+> is routed to a Messenger transport, the archive is written by the worker that consumes it, not when the mail is queued.
+> A failure while archiving is logged (`Email archive failed: ...`) and never prevents or fails mail delivery.
 
 ## Skipping archives
 
